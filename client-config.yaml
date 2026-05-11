@@ -1,0 +1,13 @@
+connections:
+  - address: "127.0.0.1:2775"
+    system_id: "system_id"
+    password: "password"
+    system_type: "system_type"
+    addr_ton: 0
+    addr_npi: 0
+    address_range: ""
+    interface_version: 52
+    weight: 1
+max_inbound_messages: 10000
+rest_addresses:
+  - 127.0.0.1:8080

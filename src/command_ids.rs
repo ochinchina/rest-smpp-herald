@@ -1,0 +1,45 @@
+// Bind operations
+pub const BIND_RECEIVER: u32 = 0x00000001;
+pub const BIND_RECEIVER_RESP: u32 = 0x80000001;
+pub const BIND_TRANSMITTER: u32 = 0x00000002;
+pub const BIND_TRANSMITTER_RESP: u32 = 0x80000002;
+pub const BIND_TRANSCEIVER: u32 = 0x00000009;
+pub const BIND_TRANSCEIVER_RESP: u32 = 0x80000009;
+pub const UNBIND: u32 = 0x00000006;
+pub const UNBIND_RESP: u32 = 0x80000006;
+pub const OUTBIND: u32 = 0x0000000B;
+
+// Message operations
+pub const SUBMIT_SM: u32 = 0x00000004;
+pub const SUBMIT_SM_RESP: u32 = 0x80000004;
+pub const SUBMIT_MULTI: u32 = 0x00000021;
+pub const SUBMIT_MULTI_RESP: u32 = 0x80000021;
+pub const DELIVER_SM: u32 = 0x00000005;
+pub const DELIVER_SM_RESP: u32 = 0x80000005;
+pub const DATA_SM: u32 = 0x00000103;
+pub const DATA_SM_RESP: u32 = 0x80000103;
+
+// Query/Cancel/Replace
+pub const QUERY_SM: u32 = 0x00000003;
+pub const QUERY_SM_RESP: u32 = 0x80000003;
+pub const CANCEL_SM: u32 = 0x00000008;
+pub const CANCEL_SM_RESP: u32 = 0x80000008;
+pub const REPLACE_SM: u32 = 0x00000007;
+pub const REPLACE_SM_RESP: u32 = 0x80000007;
+
+// Enquire link
+pub const ENQUIRE_LINK: u32 = 0x00000015;
+pub const ENQUIRE_LINK_RESP: u32 = 0x80000015;
+
+// Session management
+pub const GENERIC_NACK: u32 = 0x80000000;
+pub const ALERT_NOTIFICATION: u32 = 0x00000102;
+
+pub const BROADCAST_SM: u32 = 0x00000111;
+pub const BROADCAST_SM_RESP: u32 = 0x80000111;
+
+pub const QUERY_BROADCAST_SM: u32 = 0x00000112;
+pub const QUERY_BROADCAST_SM_RESP: u32 = 0x80000112;
+
+pub const CANCEL_BROADCAST_SM: u32 = 0x00000113;
+pub const CANCEL_BROADCAST_SM_RESP: u32 = 0x80000113;

@@ -1,0 +1,38 @@
+[package]
+name = "rest-smpp-herald"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+serde_json = "1"
+byteorder = "1"
+log = "0.4"
+env_logger = "0.11"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"
+bytes = "1.11"
+axum = "0.8"
+hex="0.4"
+serde = { version = "1.0", features = ["derive"] }
+lazy_static = "1.4"
+reqwest = { version = "^0.13", features = ["json", "blocking", "rustls"] }
+futures = "0.3"
+async-trait = "0.1"
+redis = { version = "1", features = ["tokio-comp", "aio"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "any", "postgres", "sqlite"] }
+serde_yaml = "0.9"
+chrono = "0.4"
+urlencoding = "2"
+prometheus = "0.13"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "chrono"] }
+tracing-appender = "0.2"
+tracing-log = "0.2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+hyper = "1"

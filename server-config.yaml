@@ -1,0 +1,12 @@
+listen_addresses:
+  - "0.0.0.0:2775"
+interface_version: 52
+system_id: "system_id"
+system_type: "your_system_type"
+addr_ton: 1
+addr_npi: 1
+address_range: "your_address_range"
+handler_urls:
+  - "http://127.0.0.1:5000/handle"
+users_file: "users.yaml"
+# auth_url: "http://localhost:9000/auth"
