@@ -1,14 +1,14 @@
 use base64::prelude::*;
-use rest_smpp_herald::command_ids::*;
+use bytes::BytesMut;
+use rest_smpp_herald::command_ids::CommandId;
 use rest_smpp_herald::field_codec::{FIELD_CODECS, FieldCodec, NAMED_TLV_FIELDS};
-use rest_smpp_herald::message::{
-    MESSAGE_COMMAND_FIELDS, SmppMessageBuffer, decode_message, encode_message,
-};
+use rest_smpp_herald::message::{MESSAGE_COMMAND_FIELDS, SMPPMessage};
 use serde_json::{Value, json};
 
 #[test]
 fn test_bind_transmitter_codec() {
     let message = json!({
+        "command_id": CommandId::BindTransmitter.as_u32(), // bind_transmitter
         "system_id": "test_system",
         "password": "test_pass",
         "system_type": "SMPP",
@@ -18,10 +18,8 @@ fn test_bind_transmitter_codec() {
         "address_range": "",
     });
 
-    let command_id = BIND_TRANSMITTER; // bind_transmitter
-
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let mut encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = SMPPMessage::to_json(&mut encoded).unwrap();
 
     assert_eq!(
         decoded.get("system_id").unwrap(),
@@ -44,12 +42,12 @@ fn test_bind_transmitter_codec() {
 #[test]
 fn test_bind_transmitter_resp_codec() {
     let message = json!({
+        "command_id": CommandId::BindTransmitterResp.as_u32(), // bind_transmitter_resp
         "system_id": "test_system",
     });
 
-    let command_id = BIND_TRANSMITTER_RESP; // bind_transmitter_resp
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let mut encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = SMPPMessage::to_json(&mut encoded).unwrap();
 
     assert_eq!(
         decoded.get("system_id").unwrap(),
@@ -60,13 +58,13 @@ fn test_bind_transmitter_resp_codec() {
 #[test]
 fn test_outbind_codec() {
     let message = json!({
+        "command_id": CommandId::Outbind.as_u32(), // outbind
         "system_id": "test_system",
         "password": "test_pass",
     });
 
-    let command_id = OUTBIND; // outbind
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let mut encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = SMPPMessage::to_json(&mut encoded).unwrap();
 
     assert_eq!(
         decoded.get("system_id").unwrap(),
@@ -81,6 +79,7 @@ fn test_outbind_codec() {
 #[test]
 fn test_alert_notification_codec() {
     let message = json!({
+        "command_id": CommandId::AlertNotification.as_u32(), // alert_notification
         "source_addr_ton": 1,
         "source_addr_npi": 1,
         "source_addr": "12345",
@@ -90,9 +89,8 @@ fn test_alert_notification_codec() {
         "ms_availability_status": 0,
     });
 
-    let command_id = ALERT_NOTIFICATION; // alert_notification
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("source_addr").unwrap(),
@@ -115,6 +113,7 @@ fn test_alert_notification_codec() {
 #[test]
 fn test_submit_sm_codec() {
     let message = json!({
+        "command_id": CommandId::SubmitSm.as_u32(), // submit_sm
         "service_type": "test",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -133,9 +132,9 @@ fn test_submit_sm_codec() {
         "sm_default_msg_id": 0,
         "short_message": BASE64_STANDARD.encode("Hello, World!")
     });
-    let command_id = SUBMIT_SM; // submit_sm
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("service_type").unwrap(),
@@ -158,11 +157,11 @@ fn test_submit_sm_codec() {
 #[test]
 fn test_submit_sm_resp_codec() {
     let message = json!({
+        "command_id": CommandId::SubmitSmResp.as_u32(), // submit_sm_resp
         "message_id": "msg12345",
     });
-    let command_id = SUBMIT_SM_RESP; // submit_sm_resp
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("message_id").unwrap(),
@@ -173,6 +172,7 @@ fn test_submit_sm_resp_codec() {
 #[test]
 fn test_data_sm_codec() {
     let message = json!({
+        "command_id": CommandId::DataSm.as_u32(), // data_sm
         "service_type": "test",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -184,9 +184,8 @@ fn test_data_sm_codec() {
         "registered_delivery": 0,
         "data_coding": 0,
     });
-    let command_id = DATA_SM; // data_sm
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("service_type").unwrap(),
@@ -214,11 +213,11 @@ fn test_data_sm_codec() {
 #[test]
 fn test_data_sm_resp_codec() {
     let message = json!({
+        "command_id": CommandId::DataSmResp.as_u32(), // data_sm_resp
         "message_id": "msg12345",
     });
-    let command_id = DATA_SM_RESP; // data_sm_resp
-    let encoded = encode_message(&message, Some(command_id)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("message_id").unwrap(),
@@ -229,10 +228,10 @@ fn test_data_sm_resp_codec() {
 fn test_tlv_alert_on_message_delivery() {
     match NAMED_TLV_FIELDS.get("alert_on_message_delivery") {
         Some(tlv) => {
-            let mut buffer = SmppMessageBuffer::new();
-            buffer.write_u16(0x130C); // tag
-            buffer.write_u16(1); // length
-            buffer.write_u8(1); // value
+            let mut buffer = BytesMut::new();
+            SMPPMessage::write_u16(0x130C, &mut buffer); // tag
+            SMPPMessage::write_u16(1, &mut buffer); // length
+            SMPPMessage::write_u8(1, &mut buffer); // value
 
             let r = tlv.decode(&mut buffer);
             assert!(r.is_ok());
@@ -248,10 +247,10 @@ fn test_tlv_alert_on_message_delivery() {
 fn test_broadcast_content_type_codec() {
     match NAMED_TLV_FIELDS.get("broadcast_content_type") {
         Some(tlv) => {
-            let mut buffer = SmppMessageBuffer::new();
-            buffer.write_u16(0x0601); // tag
-            buffer.write_u16(3); // length
-            buffer.write_octet("123"); // value
+            let mut buffer = BytesMut::new();
+            SMPPMessage::write_u16(0x0601, &mut buffer); // tag
+            SMPPMessage::write_u16(3, &mut buffer); // length
+            SMPPMessage::write_octet("123", &mut buffer); // value
 
             let r = tlv.decode(&mut buffer);
             print!("Decoded value: {:?}", r);
@@ -268,10 +267,10 @@ fn test_broadcast_content_type_codec() {
 fn test_dest_addr_np_country_codec() {
     match NAMED_TLV_FIELDS.get("dest_addr_np_country") {
         Some(tlv) => {
-            let mut buffer = SmppMessageBuffer::new();
-            buffer.write_u16(0x0613); // tag
-            buffer.write_u16(3); // length
-            buffer.write_octet("123"); // value
+            let mut buffer = BytesMut::new();
+            SMPPMessage::write_u16(0x0613, &mut buffer); // tag
+            SMPPMessage::write_u16(3, &mut buffer); // length
+            SMPPMessage::write_octet("123", &mut buffer); // value
 
             let r = tlv.decode(&mut buffer);
             print!("Decoded value: {:?}", r);
@@ -287,6 +286,7 @@ fn test_dest_addr_np_country_codec() {
 #[test]
 fn test_submit_multi_codec() {
     let message = json!({
+        "command_id": CommandId::SubmitMulti.as_u32(), // submit_multi
         "service_type": "test_service",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -313,19 +313,19 @@ fn test_submit_multi_codec() {
         "short_message": BASE64_STANDARD.encode("Hello, World!")
     });
 
-    let r = encode_message(&message, Some(SUBMIT_MULTI));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_ok());
-    println!("Encoded message: {:?}", r);
-    if let Ok(data) = r {
-        println!("{:?}", decode_message(&data));
-    }
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
 }
 
 #[test]
 fn test_submit_multi_resp_codec() {
     let message = json!({
+        "command_id": CommandId::SubmitMultiResp.as_u32(), // submit_multi_resp
         "message_id": "msg12345",
-        "unsuccess_sme": [
+        "unsuccess_smes": [
             {
                 "dest_addr_ton": 1,
                 "dest_addr_npi": 1,
@@ -341,17 +341,17 @@ fn test_submit_multi_resp_codec() {
         ]
     });
 
-    let r = encode_message(&message, Some(SUBMIT_MULTI_RESP));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_ok());
-    println!("Encoded message: {:?}", r);
-    if let Ok(data) = r {
-        println!("{:?}", decode_message(&data));
-    }
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
 }
 
 #[test]
 fn test_deliver_sm_codec() {
     let message = json!({
+        "command_id": CommandId::DeliverSm.as_u32(), // deliver_sm
         "service_type": "test_service",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -370,28 +370,47 @@ fn test_deliver_sm_codec() {
         "sm_default_msg_id": 0,
         "short_message": BASE64_STANDARD.encode("Hello, World!")
     });
-    let r = encode_message(&message, Some(DELIVER_SM));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_ok());
-    if let Ok(data) = r {
-        println!("{:?}", decode_message(&data));
-    }
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
 }
 
 #[test]
 fn test_deliver_sm_resp_codec() {
     let message = json!({
+        "command_id": CommandId::DeliverSmResp.as_u32(), // deliver_sm_resp
         "message_id": "msg12345",
+        "command_status": 0,
+        "sequence_number": 1,
     });
-    let r = encode_message(&message, Some(DELIVER_SM_RESP));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_ok());
-    if let Ok(data) = r {
-        println!("{:?}", decode_message(&data));
-    }
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
+}
+
+#[test]
+fn test_deliver_sm_resp_with_empty_message_id_codec() {
+    let message = json!({
+        "command_id": CommandId::DeliverSmResp.as_u32(), // deliver_sm_resp
+        "command_status": 0,
+        "sequence_number": 1,
+        "message_id": "",
+    });
+    let r: Result<SMPPMessage, std::io::Error> = SMPPMessage::from_json(&message);
+    assert!(r.is_ok());
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
 }
 
 #[test]
 fn test_broadcast_sm_codec() {
     let message = json!({
+        "command_id": CommandId::BroadcastSm.as_u32(), // broadcast_sm
         "service_type": "test_service",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -408,16 +427,17 @@ fn test_broadcast_sm_codec() {
         "broadcast_rep_num": 1,
         "broadcast_frequency_interval": BASE64_STANDARD.encode("123"),
     });
-    let r = encode_message(&message, Some(BROADCAST_SM));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_ok());
-    if let Ok(data) = r {
-        println!("{:?}", decode_message(&data));
-    }
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
 }
 
 #[test]
 fn test_cancel_sm_codec() {
     let message = json!({
+        "command_id": CommandId::CancelSm.as_u32(), // cancel_sm
         "service_type": "test",
         "message_id": "msg12345",
         "source_addr_ton": 1,
@@ -428,22 +448,25 @@ fn test_cancel_sm_codec() {
         "destination_addr": "54321",
     });
 
-    let encoded = encode_message(&message, Some(CANCEL_SM)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let r = SMPPMessage::from_json(&message);
+    assert!(r.is_ok());
+    let message = r.unwrap();
+    println!("Encoded message: {:?}", message.to_hex());
+    println!("{:?}", message.to_json().unwrap());
     assert_eq!(
-        decoded.get("service_type").unwrap(),
+        message.to_json().unwrap().get("service_type").unwrap(),
         &Value::String("test".to_string())
     );
     assert_eq!(
-        decoded.get("message_id").unwrap(),
+        message.to_json().unwrap().get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
     );
     assert_eq!(
-        decoded.get("source_addr").unwrap(),
+        message.to_json().unwrap().get("source_addr").unwrap(),
         &Value::String("12345".to_string())
     );
     assert_eq!(
-        decoded.get("destination_addr").unwrap(),
+        message.to_json().unwrap().get("destination_addr").unwrap(),
         &Value::String("54321".to_string())
     );
 }
@@ -451,14 +474,16 @@ fn test_cancel_sm_codec() {
 #[test]
 fn test_query_sm_codec() {
     let message = json!({
+        "command_id": CommandId::QuerySm.as_u32(), // query_sm
         "message_id": "msg12345",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
         "source_addr": "12345",
     });
 
-    let encoded = encode_message(&message, Some(QUERY_SM)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
+
     assert_eq!(
         decoded.get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
@@ -472,14 +497,15 @@ fn test_query_sm_codec() {
 #[test]
 fn test_query_sm_resp_codec() {
     let message = json!({
+        "command_id": CommandId::QuerySmResp.as_u32(), // query_sm_resp
         "message_id": "msg12345",
         "final_date": "",
         "message_state": 2,
         "error_code": 0,
     });
 
-    let encoded = encode_message(&message, Some(QUERY_SM_RESP)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
     assert_eq!(
         decoded.get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
@@ -493,6 +519,7 @@ fn test_query_sm_resp_codec() {
 #[test]
 fn test_replace_sm_codec() {
     let message = json!({
+        "command_id": CommandId::ReplaceSm.as_u32(), // replace_sm
         "message_id": "msg12345",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
@@ -505,8 +532,8 @@ fn test_replace_sm_codec() {
         "short_message": BASE64_STANDARD.encode("Hello, World!")
     });
 
-    let encoded = encode_message(&message, Some(REPLACE_SM)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
     assert_eq!(
         decoded.get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
@@ -524,14 +551,15 @@ fn test_replace_sm_codec() {
 #[test]
 fn test_query_broadcast_sm_codec() {
     let message = json!({
+        "command_id": CommandId::QueryBroadcastSm.as_u32(), // query_broadcast_sm
         "message_id": "msg12345",
         "source_addr_ton": 1,
         "source_addr_npi": 1,
         "source_addr": "12345",
     });
 
-    let encoded = encode_message(&message, Some(QUERY_BROADCAST_SM)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
     assert_eq!(
         decoded.get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
@@ -545,14 +573,15 @@ fn test_query_broadcast_sm_codec() {
 #[test]
 fn test_query_broadcast_sm_resp_codec() {
     let message = json!({
+        "command_id": CommandId::QueryBroadcastSmResp.as_u32(), // query_broadcast_sm_resp
         "message_id": "msg12345",
         "message_state": 2,
         "broadcast_area_identifier": BASE64_STANDARD.encode("area123"),
         "broadcast_area_success": 1,
     });
 
-    let encoded = encode_message(&message, Some(QUERY_BROADCAST_SM_RESP)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
     assert_eq!(
         decoded.get("message_id").unwrap(),
         &Value::String("msg12345".to_string())
@@ -574,6 +603,7 @@ fn test_query_broadcast_sm_resp_codec() {
 #[test]
 fn test_cancel_broadcast_sm_codec() {
     let message = json!({
+        "command_id": CommandId::CancelBroadcastSm.as_u32(), // cancel_broadcast_sm
         "service_type": "test",
         "message_id": "msg12345",
         "source_addr_ton": 1,
@@ -581,8 +611,8 @@ fn test_cancel_broadcast_sm_codec() {
         "source_addr": "12345",
     });
 
-    let encoded = encode_message(&message, Some(CANCEL_BROADCAST_SM)).unwrap();
-    let decoded = decode_message(&encoded).unwrap();
+    let encoded = SMPPMessage::from_json(&message).unwrap();
+    let decoded = encoded.to_json().unwrap();
 
     assert_eq!(
         decoded.get("service_type").unwrap(),
@@ -600,13 +630,12 @@ fn test_cancel_broadcast_sm_codec() {
 #[test]
 fn test_unknown_command_id() {
     let message = json!({
+        "command_id": 0xDEADBEEF as u32, // Unknown command_id
         "system_id": "test_system",
         "password": "test_pass",
     });
 
-    let command_id = 0xDEADBEEF; // Unknown command_id
-
-    let r = encode_message(&message, Some(command_id));
+    let r = SMPPMessage::from_json(&message);
     assert!(r.is_err());
 }
 

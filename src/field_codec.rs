@@ -1,19 +1,63 @@
 use base64::prelude::*;
-use bytes::Buf;
+use bytes::{Buf, BufMut, BytesMut};
 use serde_json::Value;
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::message::SmppMessageBuffer;
+use crate::message::SMPPMessage;
+use chrono::{Days, Duration, Months, prelude::*};
 
+pub fn parse_absolute_relative_time(time_str: &str) -> Result<DateTime<Local>, String> {
+    if time_str.len() != 16 {
+        return Err(format!("Invalid absolute_time format: {}", time_str));
+    }
+
+    let p = &time_str[15..16];
+    match p {
+        "R" => {
+            // Relative time
+            let year = time_str[0..2].parse::<u32>().unwrap();
+            let month = time_str[2..4].parse::<u32>().unwrap();
+            let day = time_str[4..6].parse::<u32>().unwrap();
+            let hour = time_str[6..8].parse::<u32>().unwrap();
+            let minute = time_str[8..10].parse::<u32>().unwrap();
+            let second = time_str[10..12].parse::<u32>().unwrap();
+
+            return Ok(Local::now()
+                + Days::new(day as u64 + year as u64 * 365)
+                + Months::new(month as u32)
+                + Duration::hours(hour as i64)
+                + Duration::minutes(minute as i64)
+                + Duration::seconds(second as i64));
+        }
+        "+" | "-" => {
+            let s = &time_str[0..12];
+            // Absolute time with timezone offset
+            if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%y%m%d%H%M%S") {
+                let nn = time_str[13..15].parse::<i64>().unwrap_or(0);
+                let t = time_str[12..13].parse::<i64>().unwrap_or(0);
+                let dt = match p {
+                    "+" => dt - Duration::minutes(nn * 15) + Duration::milliseconds(t * 100),
+                    "-" => dt + Duration::minutes(nn * 15) + Duration::milliseconds(t * 100),
+                    _ => dt,
+                };
+
+                return Ok(Local.from_local_datetime(&dt).unwrap());
+            } else {
+                return Err(format!("Failed to parse absolute_time: {}", time_str));
+            }
+        }
+        _ => return Err(format!("Invalid absolute_time format: {}", time_str)),
+    }
+}
 pub trait FieldCodec {
     /**
      * Encode the given json value as binary and put data into the provided SmppMessageBuffer.
      *
      * The implementation should handle the specific encoding rules for each field type.
      */
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()>;
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()>;
 
     /**
      * Decode binary data from the provided SmppMessageBuffer into a json value.
@@ -22,15 +66,15 @@ pub trait FieldCodec {
      *
      * Returns a serde_json::Value representing the decoded data.
      */
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value>;
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value>;
 }
 
 struct U8FieldCodec;
 impl FieldCodec for U8FieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Number(num) = value {
             if let Some(n) = num.as_u64() {
-                buffer.write_u8(n as u8);
+                SMPPMessage::write_u8(n as u8, buffer);
                 return Ok(());
             }
         }
@@ -40,8 +84,9 @@ impl FieldCodec for U8FieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(n) = buffer.read_u8() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if buffer.len() >= 1 {
+            let n = buffer.split_to(1)[0];
             Ok(Value::Number(serde_json::Number::from(n)))
         } else {
             Err(std::io::Error::new(
@@ -63,22 +108,23 @@ impl OptionalU8FieldCodec {
 }
 
 impl FieldCodec for OptionalU8FieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Number(num) = value {
             if let Some(n) = num.as_u64()
                 && n != self.default_value as u64
             {
-                buffer.write_u8(n as u8);
+                SMPPMessage::write_u8(n as u8, buffer);
                 return Ok(());
             }
         }
         // If the value is not a valid number, write the default value
-        buffer.write_u8(self.default_value);
+        buffer.put_u8(self.default_value);
         Ok(())
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(n) = buffer.read_u8() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if buffer.len() >= 1 {
+            let n = buffer.split_to(1)[0];
             Ok(Value::Number(serde_json::Number::from(n)))
         } else {
             // If we can't read a u8, return the default value
@@ -90,12 +136,12 @@ impl FieldCodec for OptionalU8FieldCodec {
 struct VarLengthIntFieldCodec;
 
 impl FieldCodec for VarLengthIntFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Number(num) = value {
             if let Some(n) = num.as_u64() {
                 let mut temp = n;
                 while temp != 0 {
-                    buffer.write_u8((temp & 0xff) as u8);
+                    SMPPMessage::write_u8((temp & 0xff) as u8, buffer);
                     temp >>= 8;
                 }
                 return Ok(());
@@ -107,10 +153,10 @@ impl FieldCodec for VarLengthIntFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
         let mut result: u64 = 0;
         loop {
-            if let Some(byte) = buffer.read_u8() {
+            if let Some(byte) = buffer.try_get_u8().ok() {
                 result = result << 8;
                 result |= byte as u64;
             } else {
@@ -136,14 +182,14 @@ impl Default for COctetStrFieldCodec {
 }
 
 impl FieldCodec for COctetStrFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::String(s) = value {
             let s = if s.len() > self.max_length {
                 &s[0..self.max_length]
             } else {
                 s
             };
-            buffer.write_c_octet_str(s);
+            SMPPMessage::write_c_octet_str(s, buffer);
             return Ok(());
         }
         Err(std::io::Error::new(
@@ -152,13 +198,15 @@ impl FieldCodec for COctetStrFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        buffer.read_c_octet_str().map(Value::String).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Failed to read c_octet_str from buffer",
-            )
-        })
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        SMPPMessage::read_c_octet_str(buffer)
+            .map(Value::String)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Failed to read c_octet_str from buffer",
+                )
+            })
     }
 }
 
@@ -175,35 +223,37 @@ impl OctetFieldCodec {
         }
     }
 
-    fn read_length(&self, buffer: &mut SmppMessageBuffer) -> Option<usize> {
+    fn read_length(&self, buffer: &mut BytesMut) -> Option<usize> {
         match self.length_bytes {
-            1 => buffer.read_u8().map(|n| n as usize),
-            2 => buffer.read_u16().map(|n| n as usize),
-            4 => buffer.read_u32().map(|n| n as usize),
+            1 => SMPPMessage::read_u8(buffer).map(|n| n as usize),
+            2 => SMPPMessage::read_u16(buffer).map(|n| n as usize),
+            4 => SMPPMessage::read_u32(buffer).map(|n| n as usize),
             _ => None,
         }
     }
 
-    fn write_length(&self, buffer: &mut SmppMessageBuffer, length: usize) {
+    fn write_length(&self, buffer: &mut BytesMut, length: usize) {
         match self.length_bytes {
-            1 => buffer.write_u8(length as u8),
-            2 => buffer.write_u16(length as u16),
-            4 => buffer.write_u32(length as u32),
+            1 => SMPPMessage::write_u8(length as u8, buffer),
+            2 => SMPPMessage::write_u16(length as u16, buffer),
+            4 => SMPPMessage::write_u32(length as u32, buffer),
             _ => (),
         }
     }
 }
 
 impl FieldCodec for OctetFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::String(s) = value {
-            if let Ok(b) = BASE64_STANDARD.decode(s) {
-                if self.length_indicator {
-                    self.write_length(buffer, b.len());
-                }
-                buffer.write(b.as_slice());
-                return Ok(());
+            let b = match BASE64_STANDARD.decode(s) {
+                Ok(decoded) => decoded,
+                Err(_) => s.clone().into_bytes(),
+            };
+            if self.length_indicator {
+                self.write_length(buffer, b.len());
             }
+            SMPPMessage::write(&b, buffer);
+            return Ok(());
         }
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -211,17 +261,17 @@ impl FieldCodec for OctetFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
         if self.length_indicator {
             let length = self.read_length(buffer);
             if let Some(len) = length {
-                if let Some(bytes) = buffer.read(len) {
+                if let Some(bytes) = SMPPMessage::read(buffer, len) {
                     let encoded = BASE64_STANDARD.encode(bytes);
                     return Ok(Value::String(encoded));
                 }
             }
         } else {
-            if let Some(bytes) = buffer.read(buffer.buffer.remaining()) {
+            if let Some(bytes) = SMPPMessage::read(buffer, buffer.remaining()) {
                 let encoded = BASE64_STANDARD.encode(bytes);
                 return Ok(Value::String(encoded));
             }
@@ -236,10 +286,10 @@ impl FieldCodec for OctetFieldCodec {
 
 struct U16FieldCodec;
 impl FieldCodec for U16FieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Number(num) = value {
             if let Some(n) = num.as_u64() {
-                buffer.write_u16(n as u16);
+                SMPPMessage::write_u16(n as u16, buffer);
                 return Ok(());
             }
         }
@@ -249,8 +299,8 @@ impl FieldCodec for U16FieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(n) = buffer.read_u16() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if let Some(n) = SMPPMessage::read_u16(buffer) {
             Ok(Value::Number(serde_json::Number::from(n)))
         } else {
             Err(std::io::Error::new(
@@ -263,10 +313,10 @@ impl FieldCodec for U16FieldCodec {
 
 struct U32FieldCodec;
 impl FieldCodec for U32FieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Number(num) = value {
             if let Some(n) = num.as_u64() {
-                buffer.write_u32(n as u32);
+                SMPPMessage::write_u32(n as u32, buffer);
                 return Ok(());
             }
         }
@@ -276,8 +326,8 @@ impl FieldCodec for U32FieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(n) = buffer.read_u32() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if let Some(n) = SMPPMessage::read_u32(buffer) {
             Ok(Value::Number(serde_json::Number::from(n)))
         } else {
             Err(std::io::Error::new(
@@ -299,7 +349,7 @@ impl ArrayFieldCodec {
 }
 
 impl FieldCodec for ArrayFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Array(arr) = value {
             if arr.len() > 255 {
                 return Err(std::io::Error::new(
@@ -307,7 +357,7 @@ impl FieldCodec for ArrayFieldCodec {
                     "Array length exceeds maximum of 255",
                 ));
             }
-            buffer.write_u8(arr.len() as u8); // Write the array length as a single byte
+            SMPPMessage::write_u8(arr.len() as u8, buffer); // Write the array length as a single byte
             for item in arr {
                 self.item_codec.encode(item, buffer)?; // Encode each item using the provided codec
             }
@@ -320,8 +370,8 @@ impl FieldCodec for ArrayFieldCodec {
         }
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(length) = buffer.read_u8() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if let Some(length) = SMPPMessage::read_u8(buffer) {
             let mut items = Vec::new();
             for _ in 0..length {
                 items.push(self.item_codec.decode(buffer)?); // Decode each item using the provided codec
@@ -346,9 +396,8 @@ impl CompositeFieldCodec {
 }
 
 impl FieldCodec for CompositeFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         for (name, codec) in &self.fields {
-            println!("Encoding composite field '{}'", *name);
             if let Some(field_value) = value.get(*name) {
                 codec.encode(field_value, buffer)?;
             } else {
@@ -361,7 +410,7 @@ impl FieldCodec for CompositeFieldCodec {
         Ok(())
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
         let mut map = serde_json::Map::new();
         for (name, codec) in &self.fields {
             if let Ok(value) = codec.decode(buffer) {
@@ -380,7 +429,7 @@ impl FieldCodec for CompositeFieldCodec {
 struct DestAddressFieldCodec;
 
 impl FieldCodec for DestAddressFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Object(map) = value {
             if let (Some(Value::Number(ton)), Some(Value::Number(npi)), Some(Value::String(addr))) = (
                 map.get("dest_addr_ton"),
@@ -388,15 +437,15 @@ impl FieldCodec for DestAddressFieldCodec {
                 map.get("destination_addr"),
             ) {
                 if let (Some(ton_u8), Some(npi_u8)) = (ton.as_u64(), npi.as_u64()) {
-                    buffer.write_u8(1); // dest_flag is 1
-                    buffer.write_u8(ton_u8 as u8);
-                    buffer.write_u8(npi_u8 as u8);
-                    buffer.write_c_octet_str(addr);
+                    SMPPMessage::write_u8(1, buffer); // dest_flag is 1
+                    SMPPMessage::write_u8(ton_u8 as u8, buffer);
+                    SMPPMessage::write_u8(npi_u8 as u8, buffer);
+                    SMPPMessage::write_c_octet_str(addr, buffer);
                     return Ok(());
                 }
             } else if let Some(Value::String(addr)) = value.get("dl_name") {
-                buffer.write_u8(2); // dest_flag is 2
-                buffer.write_c_octet_str(addr);
+                SMPPMessage::write_u8(2, buffer); // dest_flag is 2
+                SMPPMessage::write_c_octet_str(addr, buffer);
                 return Ok(());
             }
         }
@@ -406,13 +455,13 @@ impl FieldCodec for DestAddressFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        if let Some(dest_flag) = buffer.read_u8() {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        if let Some(dest_flag) = SMPPMessage::read_u8(buffer) {
             match dest_flag {
                 1 => {
-                    if let Some(ton) = buffer.read_u8() {
-                        if let Some(npi) = buffer.read_u8() {
-                            if let Some(addr) = buffer.read_c_octet_str() {
+                    if let Some(ton) = SMPPMessage::read_u8(buffer) {
+                        if let Some(npi) = SMPPMessage::read_u8(buffer) {
+                            if let Some(addr) = SMPPMessage::read_c_octet_str(buffer) {
                                 let mut map = serde_json::Map::new();
                                 map.insert(
                                     "dest_addr_ton".to_string(),
@@ -429,7 +478,7 @@ impl FieldCodec for DestAddressFieldCodec {
                     }
                 }
                 2 => {
-                    if let Some(addr) = buffer.read_c_octet_str() {
+                    if let Some(addr) = SMPPMessage::read_c_octet_str(buffer) {
                         let mut map = serde_json::Map::new();
                         map.insert("dl_name".to_string(), Value::String(addr));
                         return Ok(Value::Object(map));
@@ -453,10 +502,10 @@ impl FieldCodec for DestAddressFieldCodec {
 struct DestAddressesFieldCodec;
 
 impl FieldCodec for DestAddressesFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         let dest_address_field_codec = DestAddressFieldCodec {};
         if let Value::Array(arr) = value {
-            buffer.write_u8(arr.len() as u8); // number_of_dests
+            SMPPMessage::write_u8(arr.len() as u8, buffer); // number_of_dests
 
             for item in arr {
                 dest_address_field_codec.encode(item, buffer)?;
@@ -469,9 +518,9 @@ impl FieldCodec for DestAddressesFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
         let dest_address_field_codec = DestAddressFieldCodec {};
-        if let Some(num_dests) = buffer.read_u8() {
+        if let Some(num_dests) = SMPPMessage::read_u8(buffer) {
             let mut dests = Vec::new();
             for _ in 0..num_dests {
                 if let Ok(dest) = dest_address_field_codec.decode(buffer) {
@@ -509,12 +558,12 @@ impl TLVFieldCodec {
 }
 
 impl FieldCodec for TLVFieldCodec {
-    fn encode(&self, value: &Value, buffer: &mut SmppMessageBuffer) -> std::io::Result<()> {
-        let mut temp_buffer = SmppMessageBuffer::new();
+    fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
+        let mut temp_buffer = BytesMut::new();
         if self.value_codec.encode(value, &mut temp_buffer).is_ok() {
-            buffer.write_u16(self.tag);
-            buffer.write_u16(temp_buffer.buffer.len() as u16);
-            buffer.write(&temp_buffer.buffer);
+            SMPPMessage::write_u16(self.tag, buffer);
+            SMPPMessage::write_u16(temp_buffer.len() as u16, buffer);
+            buffer.extend_from_slice(&temp_buffer.to_vec());
             return Ok(());
         }
         Err(std::io::Error::new(
@@ -523,10 +572,10 @@ impl FieldCodec for TLVFieldCodec {
         ))
     }
 
-    fn decode(&self, buffer: &mut SmppMessageBuffer) -> std::io::Result<Value> {
-        match buffer.read_tlv() {
-            Some((tag, value_bytes)) if tag == self.tag => {
-                let mut temp_buffer = SmppMessageBuffer::from_bytes(&value_bytes);
+    fn decode(&self, buffer: &mut BytesMut) -> std::io::Result<Value> {
+        match SMPPMessage::read_tlv(buffer) {
+            Some((tag, mvalue_bytes)) if tag == self.tag => {
+                let mut temp_buffer = BytesMut::from(&mvalue_bytes[..]);
                 self.value_codec.decode(&mut temp_buffer)
             }
             Some((tag, _)) => Err(std::io::Error::new(
@@ -1007,7 +1056,7 @@ fn create_field_codecs() -> HashMap<&'static str, Box<dyn FieldCodec + Send + Sy
 
     // submit_multi_resp fields
     m.insert(
-        "unsuccess_sme",
+        "unsuccess_smes",
         Box::new(ArrayFieldCodec::new(Box::new(CompositeFieldCodec::new(
             vec![
                 ("dest_addr_ton", Box::new(U8FieldCodec {})),

@@ -1,12 +1,34 @@
 listen_addresses:
-  - "0.0.0.0:2775"
+  - "127.0.0.1:2775"
 interface_version: 52
 system_id: "system_id"
 system_type: "your_system_type"
 addr_ton: 1
 addr_npi: 1
 address_range: "your_address_range"
-handler_urls:
-  - "http://127.0.0.1:5000/handle"
+default_mc_mode: "datagram/forward/store_forward"
+rest_addresses:
+  - address: "127.0.0.1:8880"
+request_handlers:
+  - urls:
+      - "http://127.0.0.1:5000/handle"
+    algorithm: "round-robin"
+    dest_addresses:
+      - "1234567890"
+    dest_address_patterns:
+      - "^128"
 users_file: "users.yaml"
 # auth_url: "http://localhost:9000/auth"
+session_init_timer: 30
+enquire_link_timer: 60
+inactive_timer: 120
+response_timer: 30
+distribution_list:
+  - name: "list1"
+    addresses:
+      - ton: 0
+        npi: 1
+        address: "1234567890"
+      - ton: 0
+        npi: 1
+        address: "0987654321"

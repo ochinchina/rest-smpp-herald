@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use log::warn;
 use serde_json::Value;
@@ -8,11 +10,12 @@ pub trait UserAuthentication: Send + Sync {
 }
 
 pub struct SimpleUserAuthentication {
-    valid_users: Vec<(String, String)>,
+    valid_users: HashMap<String, String>,
 }
 
 impl SimpleUserAuthentication {
     pub fn new(valid_users: Vec<(String, String)>) -> Self {
+        let valid_users = valid_users.into_iter().collect();
         SimpleUserAuthentication { valid_users }
     }
 }
@@ -21,8 +24,8 @@ impl SimpleUserAuthentication {
 impl UserAuthentication for SimpleUserAuthentication {
     async fn authenticate(&self, system_id: String, password: String) -> bool {
         self.valid_users
-            .iter()
-            .any(|(id, pw)| id == &system_id && pw == &password)
+            .get(&system_id)
+            .map_or(false, |pw| pw == &password)
     }
 }
 

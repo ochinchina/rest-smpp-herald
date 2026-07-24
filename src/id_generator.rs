@@ -16,18 +16,18 @@ pub enum IdGeneratorConfig {
 
 impl Default for IdGeneratorConfig {
     fn default() -> Self {
-        IdGeneratorConfig::Atomic
+        IdGeneratorConfig::Uuid
     }
 }
 
-pub fn create_id_generator(
-    config: &IdGeneratorConfig,
-) -> std::io::Result<Box<dyn MessageIdGenerator>> {
+pub fn create_id_generator(config: &Option<IdGeneratorConfig>) -> Box<dyn MessageIdGenerator> {
+    let config = config.clone().unwrap_or_default();
+
     match config {
-        IdGeneratorConfig::Atomic => Ok(Box::new(AtomicIdGenerator::new(1))),
-        IdGeneratorConfig::Uuid => Ok(Box::new(UuidIdGenerator::new())),
+        IdGeneratorConfig::Atomic => Box::new(AtomicIdGenerator::new(1)),
+        IdGeneratorConfig::Uuid => Box::new(UuidIdGenerator::new()),
         IdGeneratorConfig::Redis { url, key } => {
-            Ok(Box::new(RedisIdGenerator::new(url, key.as_deref())?))
+            Box::new(RedisIdGenerator::new(&url, key.as_deref()).unwrap())
         }
     }
 }
@@ -54,7 +54,7 @@ impl AtomicIdGenerator {
 impl MessageIdGenerator for AtomicIdGenerator {
     async fn generate(&self, prefix: &str) -> String {
         let n = self.counter.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{:012x}", prefix, n)
+        format!("{}{:012x}", prefix, n)
     }
 }
 
@@ -71,7 +71,7 @@ impl UuidIdGenerator {
 impl MessageIdGenerator for UuidIdGenerator {
     async fn generate(&self, prefix: &str) -> String {
         let uuid = uuid::Uuid::new_v4();
-        format!("{}_{}", prefix, uuid)
+        format!("{}{}", prefix, uuid)
     }
 }
 
@@ -110,6 +110,6 @@ impl MessageIdGenerator for RedisIdGenerator {
             .incr(&self.key, 1u64)
             .await
             .expect("Failed to increment Redis ID counter");
-        format!("{}_{:012x}", prefix, n)
+        format!("{}{:012x}", prefix, n)
     }
 }
