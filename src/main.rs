@@ -233,9 +233,9 @@ async fn start_server(config_file: String) {
     let config: ServerConfig = load_server_config(&config_file).unwrap();
     let config_clone = config.clone(); // Clone the config to move into the async block
 
-    let user_auth: Arc<dyn UserAuthentication> = if let Some(url) = config.auth_url {
+    let user_auth: Arc<dyn UserAuthentication> = if let Some(url) = config.user_auth.auth_url {
         Arc::new(HttpUserAuthentication::new(url))
-    } else if let Some(file) = config.users_file {
+    } else if let Some(file) = config.user_auth.users_file {
         let users_data = load_users_config(&file).unwrap();
         let valid_users: Vec<(String, String)> = users_data
             .users

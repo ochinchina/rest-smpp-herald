@@ -7,7 +7,6 @@ use crate::message_handler::MessageHandler;
 use crate::metrics;
 use crate::sequence_number_allocator::SequenceNumberAllocator;
 use crate::smsc_client::delivery_receipt_manager::DeliveryReceiptManager;
-use crate::smsc_client::smsc_connection_manager::SmscConnectionManager;
 use bytes::BytesMut;
 use log::{debug, error, info, warn};
 use serde_json::{Value, json};
@@ -16,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::select;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 /// Parses a "host:port" address string into its components.
@@ -31,32 +31,46 @@ fn parse_host_port(address: &str) -> (String, u16) {
 
 #[derive(Clone)]
 pub struct SmscConnection {
+    bind_type: String,
+    session_init_timer: u32,
+    enquire_link_timer: u32,
+    inactive_timer: u32,
+    response_timer: u32,
     pub(crate) config: SmscConnectionConfig,
     pub seq_allocator: SequenceNumberAllocator,
     pub smsc_message_handler: Arc<Box<dyn MessageHandler>>,
     pub alarm_notifier: Option<Arc<dyn AlarmNotifier>>,
     pub delivery_receipt_manager: Arc<DeliveryReceiptManager>,
-    smsc_connection_manager: Arc<SmscConnectionManager>,
     pub writer: Arc<Mutex<Option<tokio::net::tcp::OwnedWriteHalf>>>,
+    response_manager: Arc<crate::smsc_client::response_manager::ResponseManager>,
 }
 
 impl SmscConnection {
     pub fn new(
+        bind_type: String,
+        session_init_timer: u32,
+        enquire_link_timer: u32,
+        inactive_timer: u32,
+        response_timer: u32,
         config: SmscConnectionConfig,
         seq_allocator: SequenceNumberAllocator,
         smsc_message_handler: Arc<Box<dyn MessageHandler>>,
         alarm_notifier: Option<Arc<dyn AlarmNotifier>>,
         delivery_receipt_manager: Arc<DeliveryReceiptManager>,
-        smsc_connection_manager: Arc<SmscConnectionManager>,
     ) -> Self {
         SmscConnection {
+            bind_type,
+            session_init_timer,
+            enquire_link_timer,
+            inactive_timer,
+            response_timer,
             config,
             seq_allocator,
             smsc_message_handler,
             alarm_notifier,
             delivery_receipt_manager,
-            smsc_connection_manager,
             writer: Arc::new(Mutex::new(None)),
+            response_manager: Arc::new(crate::smsc_client::response_manager::ResponseManager::new()),
         }
     }
 
@@ -149,13 +163,17 @@ impl SmscConnection {
         }
 
         // enquery link timer
-        let enquery_link_interval = Duration::from_secs(30);
+        let enquery_link_interval = Duration::from_secs(self.enquire_link_timer as u64);
         let mut enquery_link_timer = tokio::time::interval(enquery_link_interval);
-        let no_message_timeout = Duration::from_secs(180);
-        let mut no_message_timer = tokio::time::interval(no_message_timeout);
+        let inactive_timer_timeout = Duration::from_secs(self.inactive_timer as u64);
+        let mut inactive_timer = tokio::time::interval(inactive_timer_timeout);
         // the first tick of timer will complete immediately, so we need to skip it
-        no_message_timer.tick().await;
+        inactive_timer.tick().await;
+        // the first tick of timer will complete immediately, so we need to skip it
+        enquery_link_timer.tick().await;
+
         let messages_received = AtomicU32::new(0);
+
         info!(
             "Starting main loop to communicate with SMSC {}",
             self.config.address
@@ -190,10 +208,10 @@ impl SmscConnection {
                     self.send_enquire_link().await?;
                 }
 
-                _ = no_message_timer.tick() => {
+                _ = inactive_timer.tick() => {
                     info!("Checking for no message timeout");
                     if messages_received.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-                        error!("No message received from SMSC for {:?}, disconnecting...", no_message_timeout);
+                        error!("No message received from SMSC for {:?}, disconnecting...", inactive_timer_timeout);
                         break;
                     } else {
                         messages_received.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -242,46 +260,56 @@ impl SmscConnection {
         }
 
         loop {
-            let _ = reader.readable().await?;
-            if let Ok(n) = reader.try_read(&mut buf) {
-                debug!(
-                    "Received {} bytes from SMSC from {}",
-                    n, self.config.address
-                );
-                buffer.write(&buf[..n]);
-                if let Some(mut message) = buffer.extract_message() {
-                    match SMPPMessage::to_json(&mut message) {
-                        Ok(response) => {
-                            if self.is_bind_ok(&response) {
-                                info!(
-                                    "Bind at {} successful with response: {}",
-                                    self.config.address,
-                                    SMPPMessage::format_smpp_value(&response)
-                                );
-                                return Ok(());
-                            } else {
-                                error!(
-                                    "Bind failed at {} with response: {}",
-                                    self.config.address,
-                                    SMPPMessage::format_smpp_value(&response)
-                                );
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    "Bind failed",
-                                ));
+            select! {
+                _ = reader.readable() => {
+                    if let Ok(n) = reader.try_read(&mut buf) {
+                        debug!(
+                            "Received {} bytes from SMSC from {}",
+                            n, self.config.address
+                        );
+                        buffer.write(&buf[..n]);
+                        if let Some(mut message) = buffer.extract_message() {
+                            match SMPPMessage::to_json(&mut message) {
+                                Ok(response) => {
+                                    if self.is_bind_ok(&response) {
+                                        info!(
+                                            "Bind at {} successful with response: {}",
+                                            self.config.address,
+                                            SMPPMessage::format_smpp_value(&response)
+                                        );
+                                        return Ok(());
+                                    } else {
+                                        error!(
+                                            "Bind failed at {} with response: {}",
+                                            self.config.address,
+                                            SMPPMessage::format_smpp_value(&response)
+                                        );
+                                        return Err(std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Bind failed",
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to decode bind response: {} from SMSC {}",
+                                        e, self.config.address
+                                    );
+                                    return Err(std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "Failed to decode bind response",
+                                    ));
+                                }
                             }
                         }
-                        Err(e) => {
-                            error!(
-                                "Failed to decode bind response: {} from SMSC {}",
-                                e, self.config.address
-                            );
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                "Failed to decode bind response",
-                            ));
-                        }
                     }
+                },
+                _ = tokio::time::sleep(Duration::from_secs(self.session_init_timer as u64)) => {
+                    error!("Timeout waiting for bind response from SMSC {}", self.config.address);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "Timeout waiting for bind response",
+                    ));
                 }
             }
         }
@@ -330,8 +358,17 @@ impl SmscConnection {
     fn create_bind_message(&self) -> SMPPMessage {
         let mut buffer = BytesMut::new();
 
+        let command_id = if self.bind_type == "transmitter" {
+            CommandId::BindTransmitter
+        } else if self.bind_type == "receiver" {
+            CommandId::BindReceiver
+        } else if self.bind_type == "transceiver" {
+            CommandId::BindTransceiver
+        } else {
+            CommandId::BindTransceiver // default to transceiver if unknown
+        };
         SMPPMessage::write_u32(0, &mut buffer); // Placeholder for command_length
-        SMPPMessage::write_u32(CommandId::BindTransmitter.as_u32(), &mut buffer); // command_id for bind_transmitter
+        SMPPMessage::write_u32(command_id.as_u32(), &mut buffer); // command_id for bind_transmitter
         SMPPMessage::write_u32(0, &mut buffer); // command_status
         let seq_num = self.seq_allocator.next();
         SMPPMessage::write_u32(seq_num, &mut buffer); // sequence_number
@@ -364,7 +401,8 @@ impl SmscConnection {
             "sequence_number": self.seq_allocator.next()
         });
         let message = SMPPMessage::from_json(&message).map_or(SMPPMessage::new(vec![]), |msg| msg);
-        self.send_message(&message).await
+        let _ = self.send_message(&message).await?;
+        Ok(())
     }
 
     /// Reads raw bytes from the SMSC TCP connection and extracts complete SMPP messages.
@@ -428,7 +466,6 @@ impl SmscConnection {
     async fn process_in_message(&self, message: SMPPMessage) -> std::io::Result<()> {
         let command_id = message.get_command_id().unwrap_or(0);
         let sequence_number = message.get_sequence_number().unwrap_or(0);
-        let command_status = message.get_command_status().unwrap_or(0);
         let command_id = CommandId::from_u32(command_id).unwrap_or(CommandId::Unknown);
 
         match message.to_json() {
@@ -446,42 +483,44 @@ impl SmscConnection {
                             "Received enquire_link from SMSC {} for {}",
                             self.config.address, sequence_number
                         );
+                        self.process_enquire_link(&message).await?;
                     }
+
                     CommandId::EnquireLinkResp => {
                         debug!(
                             "Received enquire_link_resp from SMSC {} for {}",
                             self.config.address, sequence_number
                         );
-                        self.process_enquire_link(&message).await?;
                     }
+
                     CommandId::DeliverSm | CommandId::DataSm => {
                         info!(
-                            "Received DELIVER_SM from SMSC {} for {}",
-                            self.config.address, sequence_number
+                            "Received {} from SMSC {}",
+                            decoded_message, self.config.address
                         );
                         self.handle_deliver_sm(&message, &decoded_message).await?;
                     }
                     CommandId::AlertNotification => {
                         info!(
-                            "Received ALERT_NOTIFICATION from SMSC {} for {}",
-                            self.config.address, sequence_number
+                            "Received {} from SMSC {}",
+                            decoded_message, self.config.address
                         );
                     }
                     CommandId::GenericNack => {
                         info!(
-                            "Received GENERIC_NACK from SMSC {} for {} with command status {}",
-                            self.config.address, sequence_number, command_status
+                            "Received {} from SMSC {}",
+                            decoded_message, self.config.address
                         );
                     }
                     _ => {
                         info!(
-                            "Received message {} from SMSC {} for {}",
-                            decoded_message, self.config.address, sequence_number
+                            "Received message {} from SMSC {}",
+                            decoded_message, self.config.address
                         );
 
                         if command_id.is_response() {
                             // Notify the connection manager that a response has been received for a specific sequence number.
-                            self.smsc_connection_manager
+                            self.response_manager
                                 .response_received(sequence_number, decoded_message.clone())
                                 .await;
                         } else {
@@ -676,16 +715,91 @@ impl SmscConnection {
         Ok(())
     }
 
-    pub async fn send_message(&self, message: &SMPPMessage) -> std::io::Result<()> {
+    /// Sends an SMPP message to the SMSC and optionally waits for a response if the message is a request.
+    /// # Arguments
+    /// * `message` - The SMPPMessage to send.
+    /// # Returns
+    /// `std::io::Result<Option<Value>>` - Returns `Ok(Some(response))` if a response is received, `Ok(None)` if no response is expected, or an error if sending fails.
+    pub async fn send_message(&self, message: &SMPPMessage) -> std::io::Result<Option<Value>> {
+        let seq_num = message.get_sequence_number().unwrap_or(0);
+        let command_id = message.get_command_id().unwrap_or(0);
+
+        let receiver = if message.is_request() && command_id != CommandId::EnquireLink.as_u32() {
+            Some(self.response_manager.register_callback(seq_num).await)
+        } else {
+            None
+        };
         let mut writer = self.writer.lock().await;
         if let Some(ref mut writer) = *writer {
             writer.write_all(&message.to_vec()).await?;
-            Ok(())
+            if let Some(receiver) = receiver {
+                match self.wait_response(seq_num, receiver).await {
+                    Ok(response) => Ok(Some(response)),
+                    Err(e) => {
+                        error!(
+                            "Failed to wait for response for sequence_number {}: {}",
+                            seq_num, e
+                        );
+                        Err(e)
+                    }
+                }
+            } else {
+                Ok(None)
+            }
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
                 "SMSC writer not available",
             ))
+        }
+    }
+
+    async fn wait_response(
+        &self,
+        sequence_number: u32,
+        receiver: tokio::sync::oneshot::Receiver<std::io::Result<Value>>,
+    ) -> std::io::Result<Value> {
+        match tokio::time::timeout(Duration::from_secs(self.response_timer as u64), receiver).await
+        {
+            Ok(Ok(response)) => match response {
+                Ok(ref resp) => {
+                    info!(
+                        "Received response for sequence_number {}: {}",
+                        sequence_number, resp
+                    );
+                    Ok(resp.clone())
+                }
+                Err(ref e) => {
+                    error!(
+                        "Failed to receive response for sequence_number {}: {}",
+                        sequence_number, e
+                    );
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Failed to receive response",
+                    ))
+                }
+            },
+            Ok(Err(e)) => {
+                error!(
+                    "Failed to receive response for sequence_number {}: {}",
+                    sequence_number, e
+                );
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Failed to receive response",
+                ))
+            }
+            Err(_) => {
+                error!(
+                    "Timeout waiting for response for sequence_number {}",
+                    sequence_number
+                );
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Timeout waiting for response",
+                ))
+            }
         }
     }
 }

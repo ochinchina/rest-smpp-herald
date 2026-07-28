@@ -97,12 +97,16 @@ impl SmscClient {
         // Spawn a reconnection loop for each configured SMSC connection
         for conn_config in &self.config.connections {
             let connection = SmscConnection::new(
+                self.config.bind_type.clone(),
+                self.config.session_init_timer,
+                self.config.enquire_link_timer,
+                self.config.inactive_timer,
+                self.config.response_timer,
                 conn_config.clone(),
                 self.seq_allocator.clone(),
                 self.message_handler.clone(),
                 alarm_notifier.clone(),
                 self.delivery_receipt_manager.clone(),
-                self.smsc_connection_manager.clone(),
             );
             self.smsc_connection_manager
                 .add_connection(connection.clone())
@@ -633,15 +637,19 @@ pub async fn add_live_smsc_connection(
     // Spawn the reconnection loop
     let seq_allocator = state.seq_allocator.clone();
     let handler = state.smsc_message_handler.clone();
-    let an = state.alarm_notifier.clone();
+    let alarm_notifier = state.alarm_notifier.clone();
     let delivery_receipt_manager = state.delivery_receipt_manager.clone();
     let connection = SmscConnection::new(
+        req.bind_type.clone(),
+        req.session_init_timer,
+        req.enquire_link_timer,
+        req.inactive_timer,
+        req.response_timer,
         conn_config.clone(),
         seq_allocator,
         handler,
-        an,
+        alarm_notifier,
         delivery_receipt_manager,
-        state.smsc_connection_manager.clone(),
     );
 
     tokio::spawn(async move {

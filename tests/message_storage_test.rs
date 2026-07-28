@@ -5,8 +5,8 @@ use std::sync::{
 
 use chrono::{Duration, Local};
 use rest_smpp_herald::message_storage::{
-    DeliveryMessageHandler, DeliveryMessageInfo, DeliveryMessageInfoManager,
-    InMemoryMessageStorage, MessageStorage, SqlMessageStorage,
+    DeliveryMessageInfo, DeliveryMessageInfoManager, InMemoryMessageStorage, MessageStorage,
+    ScheduleDeliveryMessageHandler, SqlMessageStorage,
 };
 use serde_json::json;
 use sqlx::Row;
@@ -18,8 +18,11 @@ struct TestDeliveryHandler {
 }
 
 #[async_trait::async_trait]
-impl DeliveryMessageHandler for TestDeliveryHandler {
-    async fn handle_delivery_message(&self, _message: serde_json::Value) -> std::io::Result<()> {
+impl ScheduleDeliveryMessageHandler for TestDeliveryHandler {
+    async fn handle_schedule_delivery_message(
+        &self,
+        _message: serde_json::Value,
+    ) -> std::io::Result<()> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.notify.notify_waiters();
         Ok(())
@@ -66,7 +69,7 @@ async fn in_memory_set_deliver_message_handler_invokes_for_ready_message() {
     let notify = Arc::new(Notify::new());
 
     storage
-        .set_deliver_message_handler(Box::new(TestDeliveryHandler {
+        .set_schedule_delivery_message_handler(Box::new(TestDeliveryHandler {
             calls: Arc::clone(&calls),
             notify: Arc::clone(&notify),
         }))
@@ -89,7 +92,7 @@ async fn in_memory_set_deliver_message_handler_waits_until_scheduled_time() {
     let notify = Arc::new(Notify::new());
 
     storage
-        .set_deliver_message_handler(Box::new(TestDeliveryHandler {
+        .set_schedule_delivery_message_handler(Box::new(TestDeliveryHandler {
             calls: Arc::clone(&calls),
             notify: Arc::clone(&notify),
         }))
@@ -122,7 +125,7 @@ async fn sqlite_set_deliver_message_handler_invokes_for_ready_message() {
     let notify = Arc::new(Notify::new());
 
     storage
-        .set_deliver_message_handler(Box::new(TestDeliveryHandler {
+        .set_schedule_delivery_message_handler(Box::new(TestDeliveryHandler {
             calls: Arc::clone(&calls),
             notify: Arc::clone(&notify),
         }))

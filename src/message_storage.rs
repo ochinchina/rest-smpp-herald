@@ -188,33 +188,45 @@ impl DeliveryMessageInfoManager {
 }
 
 #[async_trait::async_trait]
-pub trait DeliveryMessageHandler: Send + Sync {
-    async fn handle_delivery_message(&self, message: Value) -> std::io::Result<()>;
+pub trait ScheduleDeliveryMessageHandler: Send + Sync {
+    /// Handles a scheduled delivery message. This function is called when a message is ready to be delivered based on its schedule_delivery_time and validity_period.
+    /// # Arguments
+    /// * `message` - The message to be delivered, represented as a JSON value.
+    /// # Returns
+    /// A `std::io::Result<()>` indicating the success or failure of the delivery operation.
+    async fn handle_schedule_delivery_message(&self, message: Value) -> std::io::Result<()>;
 }
 
 #[async_trait::async_trait]
 pub trait MessageStorage: Send + Sync {
-    /**
-     * Saves a message to the storage and returns a unique message ID.
-     */
+    /// Saves a message in the storage with the given message ID. The message is represented as a JSON value.
+    /// # Arguments
+    /// * `message_id` - The unique identifier for the message to be saved.
+    /// * `message` - The message to be saved, represented as a JSON value.
+    /// # Returns
+    /// A `std::io::Result<()>` indicating the success or failure of the save operation.
     async fn save(&self, message_id: &String, message: &Value) -> std::io::Result<()>;
 
-    /**
-     * Sets the handler function that will be called to deliver messages. The handler should return true if the message was successfully delivered, and false otherwise.
-     */
-    async fn set_deliver_message_handler(
+    /// Sets the handler for scheduled delivery messages. This function is called to register a handler that will be invoked when a message is ready to be delivered based on its schedule_delivery_time and validity_period.
+    /// # Arguments
+    /// * `deliver_message_handler` - A boxed trait object implementing the `ScheduleDeliveryMessageHandler` trait, which will handle the delivery of scheduled messages.
+    async fn set_schedule_delivery_message_handler(
         &self,
-        deliver_message_handler: Box<dyn DeliveryMessageHandler>,
+        deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     );
 
-    /**
-     * Cancels a message in the storage based on the provided cancel_sm command. Returns true if the message was successfully canceled, and false otherwise.
-     */
+    /// Cancels a message in the storage based on the provided cancel_sm command. Returns true if the message was successfully canceled, and false otherwise.
+    /// # Arguments
+    /// * `cancel_sm` - The cancel_sm command represented as a JSON value, containing the criteria for canceling the message.
+    /// # Returns
+    /// A `std::io::Result<bool>` indicating whether the message was successfully canceled (true) or not (false).
     async fn cancel_message(&self, cancel_sm: &Value) -> std::io::Result<bool>;
 
-    /**
-     * Replaces a message in the storage based on the provided replace_sm command. Returns true if the message was successfully replaced, and false otherwise.
-     */
+    /// Replaces an existing message in the storage with a new message based on the provided replace_sm command. Returns true if the message was successfully replaced, and false otherwise.
+    /// # Arguments
+    /// * `message` - The replace_sm command represented as a JSON value, containing the new message data to replace the existing message.
+    /// # Returns
+    /// A `std::io::Result<bool>` indicating whether the message was successfully replaced (true) or not (false).
     async fn replace_message(&self, message: &Value) -> std::io::Result<bool>;
 }
 
@@ -414,9 +426,9 @@ impl MessageStorage for InMemoryMessageStorage {
         Ok(())
     }
 
-    async fn set_deliver_message_handler(
+    async fn set_schedule_delivery_message_handler(
         &self,
-        deliver_message_handler: Box<dyn DeliveryMessageHandler>,
+        deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     ) {
         let self_clone = self.clone();
         tokio::spawn(async move {
@@ -432,7 +444,7 @@ impl MessageStorage for InMemoryMessageStorage {
                     _ = t2.tick() => {
                         if let Ok(values) = self_clone.get_delivery_messages().await {
                             for (message_id, index, message) in values {
-                                if deliver_message_handler.handle_delivery_message(message).await.is_ok() {
+                                if deliver_message_handler.handle_schedule_delivery_message(message).await.is_ok() {
                                     error!("Successfully delivered message: {}", message_id);
                                 } else {
                                     error!("Failed to deliver message: {}", message_id);
@@ -1065,9 +1077,9 @@ impl MessageStorage for SqlMessageStorage {
         Ok(())
     }
 
-    async fn set_deliver_message_handler(
+    async fn set_schedule_delivery_message_handler(
         &self,
-        deliver_message_handler: Box<dyn DeliveryMessageHandler>,
+        deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     ) {
         let self_clone = self.clone();
         tokio::spawn(async move {
@@ -1083,7 +1095,7 @@ impl MessageStorage for SqlMessageStorage {
                     _ = t2.tick() => {
                         if let Ok(values) = self_clone.get_delivery_messages().await {
                             for (id, message) in values {
-                                if deliver_message_handler.handle_delivery_message(message).await.is_err() {
+                                if deliver_message_handler.handle_schedule_delivery_message(message).await.is_err() {
                                     error!("Failed to deliver message with id {}", id);
                                 } else {
                                     info!("Successfully delivered message with id {}", id);
@@ -1710,9 +1722,9 @@ impl MessageStorage for RedisMessageStorage {
         Ok(())
     }
 
-    async fn set_deliver_message_handler(
+    async fn set_schedule_delivery_message_handler(
         &self,
-        deliver_message_handler: Box<dyn DeliveryMessageHandler>,
+        deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     ) {
         let self_clone = self.clone();
         tokio::spawn(async move {
@@ -1728,7 +1740,7 @@ impl MessageStorage for RedisMessageStorage {
                     _ = t2.tick() => {
                         if let Ok(values) = self_clone.get_delivery_messages().await {
                             for (entry_id, message) in values {
-                                if deliver_message_handler.handle_delivery_message(message).await.is_err() {
+                                if deliver_message_handler.handle_schedule_delivery_message(message).await.is_err() {
                                     error!("Failed to deliver message with entry {}", entry_id);
                                 } else {
                                     info!("Successfully delivered message with entry {}", entry_id);
@@ -1976,9 +1988,9 @@ impl MessageStorage for RabbitMqMessageStorage {
         Ok(())
     }
 
-    async fn set_deliver_message_handler(
+    async fn set_schedule_delivery_message_handler(
         &self,
-        deliver_message_handler: Box<dyn DeliveryMessageHandler>,
+        deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     ) {
         let channel = self.channel.lock().await.clone();
         let queue_name = self.queue_name.clone();
@@ -2101,7 +2113,7 @@ impl MessageStorage for RabbitMqMessageStorage {
                 };
 
                 if deliver_message_handler
-                    .handle_delivery_message(payload)
+                    .handle_schedule_delivery_message(payload)
                     .await
                     .is_ok()
                 {
@@ -2128,7 +2140,7 @@ impl MessageStorage for RabbitMqMessageStorage {
                     }
                 } else {
                     // Delivery failed, nack and requeue
-                    error!("Failed to deliver RabbitMQ message");
+                    error!("Failed to deliver message");
                     let _ = channel
                         .basic_nack(
                             delivery.delivery_tag,

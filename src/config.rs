@@ -78,6 +78,16 @@ pub struct UpdateSmppConnectionRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AddSmscRequest {
+    #[serde(default = "get_default_bind_type")]
+    pub bind_type: String,
+    #[serde(default = "get_default_session_init_timer")]
+    pub session_init_timer: u32,
+    #[serde(default = "get_default_enquire_link_timer")]
+    pub enquire_link_timer: u32,
+    #[serde(default = "get_default_inactive_timer")]
+    pub inactive_timer: u32,
+    #[serde(default = "get_default_response_timer")]
+    pub response_timer: u32,
     pub address: String,
     pub system_id: String,
     pub password: String,
@@ -133,28 +143,47 @@ pub struct RequestHandlerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
+    #[serde(default = "get_default_bind_type")]
+    pub bind_type: String,
     #[serde(default)]
     pub rest_addresses: Vec<RestAddressConfig>,
     pub connections: Vec<SmscConnectionConfig>,
     pub load_balancing_algorithm: Option<String>,
-    #[serde(default)]
-    pub outbound_storage: StorageConfig,
     #[serde(default)]
     pub request_handlers: Option<Vec<RequestHandlerConfig>>,
     #[serde(default)]
     pub alarm_config: Option<AlarmConfig>,
     #[serde(default)]
     pub id_generator: Option<IdGeneratorConfig>,
-    #[serde(default)]
-    pub session_init_timer: Option<u32>,
-    #[serde(default)]
-    pub enquire_link_timer: Option<u32>,
-    #[serde(default)]
-    pub inactive_timer: Option<u32>,
-    #[serde(default)]
-    pub response_timer: Option<u32>,
+    #[serde(default = "get_default_session_init_timer")]
+    pub session_init_timer: u32,
+    #[serde(default = "get_default_enquire_link_timer")]
+    pub enquire_link_timer: u32,
+    #[serde(default = "get_default_inactive_timer")]
+    pub inactive_timer: u32,
+    #[serde(default = "get_default_response_timer")]
+    pub response_timer: u32,
 }
 
+fn get_default_session_init_timer() -> u32 {
+    30
+}
+
+fn get_default_enquire_link_timer() -> u32 {
+    30
+}
+
+fn get_default_inactive_timer() -> u32 {
+    300
+}
+
+fn get_default_response_timer() -> u32 {
+    30
+}
+
+fn get_default_bind_type() -> String {
+    "transceiver".to_string()
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserCredential {
     pub system_id: String,
@@ -202,6 +231,22 @@ pub enum MessageStorageConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAuthConfig {
+    #[serde(default)]
+    pub users_file: Option<String>,
+    #[serde(default)]
+    pub auth_url: Option<String>,
+}
+
+impl Default for UserAuthConfig {
+    fn default() -> Self {
+        UserAuthConfig {
+            users_file: None,
+            auth_url: None,
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     #[serde(default)]
     pub listen_addresses: Vec<String>,
@@ -212,9 +257,7 @@ pub struct ServerConfig {
     #[serde(default)]
     pub ip_whitelist: IpWhitelistConfig,
     #[serde(default)]
-    pub users_file: Option<String>,
-    #[serde(default)]
-    pub auth_url: Option<String>,
+    pub user_auth: UserAuthConfig,
     #[serde(default)]
     pub session_init_timer: Option<u32>,
     #[serde(default)]

@@ -642,7 +642,7 @@ fn test_unknown_command_id() {
 #[test]
 fn test_all_fields_are_defined() {
     for (command_id, fields) in MESSAGE_COMMAND_FIELDS.iter() {
-        for field_name in fields {
+        for (field_name, _default_value) in fields {
             assert!(
                 FIELD_CODECS.contains_key(*field_name)
                     || NAMED_TLV_FIELDS.contains_key(*field_name),

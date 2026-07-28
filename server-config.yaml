@@ -1,12 +1,7 @@
+bind_type: "transceiver"
 listen_addresses:
   - "127.0.0.1:2775"
 interface_version: 52
-system_id: "system_id"
-system_type: "your_system_type"
-addr_ton: 1
-addr_npi: 1
-address_range: "your_address_range"
-default_mc_mode: "datagram/forward/store_forward"
 rest_addresses:
   - address: "127.0.0.1:8880"
 request_handlers:
@@ -17,8 +12,14 @@ request_handlers:
       - "1234567890"
     dest_address_patterns:
       - "^128"
-users_file: "users.yaml"
-# auth_url: "http://localhost:9000/auth"
+#ip_whitelist:
+#  memory:
+#    file: "ip_whitelist.yaml"
+#    ips:
+#      - "10.0.0.1"
+#      - "10.0.0.2"
+user_auth:
+  users_file: "users.yaml"
 session_init_timer: 30
 enquire_link_timer: 60
 inactive_timer: 120
@@ -32,3 +33,13 @@ distribution_list:
       - ton: 0
         npi: 1
         address: "0987654321"
+# default validity_period is in seconds, default is 3600 (1 hour)
+default_validity_period: 3600
+# default_mc_mode is one of "datagram", "forward", or "store_forward"
+default_mc_mode: "store_forward"
+# predefined_messages is a list of messages used by sm_default_msg_id
+predefined_messages:
+- this is a test message
+- this is another test message
+default_service_type: "CMT"
+

@@ -431,18 +431,20 @@ struct DestAddressFieldCodec;
 impl FieldCodec for DestAddressFieldCodec {
     fn encode(&self, value: &Value, buffer: &mut BytesMut) -> std::io::Result<()> {
         if let Value::Object(map) = value {
-            if let (Some(Value::Number(ton)), Some(Value::Number(npi)), Some(Value::String(addr))) = (
-                map.get("dest_addr_ton"),
-                map.get("dest_addr_npi"),
-                map.get("destination_addr"),
-            ) {
-                if let (Some(ton_u8), Some(npi_u8)) = (ton.as_u64(), npi.as_u64()) {
-                    SMPPMessage::write_u8(1, buffer); // dest_flag is 1
-                    SMPPMessage::write_u8(ton_u8 as u8, buffer);
-                    SMPPMessage::write_u8(npi_u8 as u8, buffer);
-                    SMPPMessage::write_c_octet_str(addr, buffer);
-                    return Ok(());
-                }
+            let dest_addr_ton = map
+                .get("dest_addr_ton")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u8;
+            let dest_addr_npi = map
+                .get("dest_addr_npi")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u8;
+            if let Some(Value::String(addr)) = map.get("destination_addr") {
+                SMPPMessage::write_u8(1, buffer); // dest_flag is 1
+                SMPPMessage::write_u8(dest_addr_ton, buffer);
+                SMPPMessage::write_u8(dest_addr_npi, buffer);
+                SMPPMessage::write_c_octet_str(addr, buffer);
+                return Ok(());
             } else if let Some(Value::String(addr)) = value.get("dl_name") {
                 SMPPMessage::write_u8(2, buffer); // dest_flag is 2
                 SMPPMessage::write_c_octet_str(addr, buffer);

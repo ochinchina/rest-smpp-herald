@@ -142,6 +142,14 @@ impl SMPPMessage {
         }
     }
 
+    pub fn is_request(&self) -> bool {
+        if let Some(command_id) = self.get_command_id() {
+            (command_id & 0x80000000) == 0
+        } else {
+            false
+        }
+    }
+
     pub fn get_command_status(&self) -> Option<u32> {
         if self.message.len() >= 12 {
             Some(BigEndian::read_u32(&self.message[8..12]))
@@ -366,9 +374,9 @@ impl SMPPMessage {
         }
 
         if let Some(fields) = fields {
-            for field_name in fields {
+            for (field_name, default_value) in fields {
                 if let Some(codec) = FIELD_CODECS.get(*field_name) {
-                    if let Some(value) = message.get(*field_name) {
+                    if let Some(value) = message.get(*field_name).or(default_value.as_ref()) {
                         if codec.encode(value, &mut buffer).is_err() {
                             error!("Failed to encode field '{}': {:?}", field_name, value);
                             return Err(std::io::Error::new(
@@ -455,7 +463,7 @@ impl SMPPMessage {
         );
 
         if let Some(fields) = MESSAGE_COMMAND_FIELDS.get(&command_id) {
-            for field_name in fields {
+            for (field_name, _default_value) in fields {
                 if let Some(codec) = FIELD_CODECS.get(*field_name) {
                     if let Ok(value) = codec.decode(&mut buffer) {
                         map.insert(field_name.to_string(), value);
@@ -614,51 +622,64 @@ impl Display for SMPPMessage {
     }
 }
 
-pub static MESSAGE_COMMAND_FIELDS: LazyLock<HashMap<u32, Vec<&'static str>>> =
+/// A static mapping of command IDs to their corresponding field names and default values.
+pub static MESSAGE_COMMAND_FIELDS: LazyLock<HashMap<u32, Vec<(&'static str, Option<Value>)>>> =
     LazyLock::new(|| create_command_fields());
 
-fn create_command_fields() -> HashMap<u32, Vec<&'static str>> {
-    let mut m: HashMap<u32, Vec<&'static str>> = HashMap::new();
+fn create_command_fields() -> HashMap<u32, Vec<(&'static str, Option<Value>)>> {
+    let mut m: HashMap<u32, Vec<(&'static str, Option<Value>)>> = HashMap::new();
     m.insert(
         CommandId::BindTransmitter.as_u32(),
         vec![
-            "system_id",
-            "password",
-            "system_type",
-            "interface_version",
-            "addr_ton",
-            "addr_npi",
-            "address_range",
+            ("system_id", None),
+            ("password", None),
+            ("system_type", None),
+            ("interface_version", Some(Value::Number(0x34.into()))),
+            ("addr_ton", Some(Value::Number(0.into()))),
+            ("addr_npi", Some(Value::Number(0.into()))),
+            ("address_range", None),
         ],
     );
-    m.insert(CommandId::BindTransmitterResp.as_u32(), vec!["system_id"]);
+    m.insert(
+        CommandId::BindTransmitterResp.as_u32(),
+        vec![("system_id", None)],
+    );
     m.insert(
         CommandId::BindReceiver.as_u32(),
         vec![
-            "system_id",
-            "password",
-            "system_type",
-            "interface_version",
-            "addr_ton",
-            "addr_npi",
-            "address_range",
+            ("system_id", None),
+            ("password", None),
+            ("system_type", None),
+            ("interface_version", Some(Value::Number(0x34.into()))),
+            ("addr_ton", Some(Value::Number(0.into()))),
+            ("addr_npi", Some(Value::Number(0.into()))),
+            ("address_range", None),
         ],
     );
-    m.insert(CommandId::BindReceiverResp.as_u32(), vec!["system_id"]);
+    m.insert(
+        CommandId::BindReceiverResp.as_u32(),
+        vec![("system_id", None)],
+    );
     m.insert(
         CommandId::BindTransceiver.as_u32(),
         vec![
-            "system_id",
-            "password",
-            "system_type",
-            "interface_version",
-            "addr_ton",
-            "addr_npi",
-            "address_range",
+            ("system_id", None),
+            ("password", None),
+            ("system_type", None),
+            ("interface_version", Some(Value::Number(0x34.into()))),
+            ("addr_ton", Some(Value::Number(0.into()))),
+            ("addr_npi", Some(Value::Number(0.into()))),
+            ("address_range", None),
         ],
     );
-    m.insert(CommandId::BindTransceiverResp.as_u32(), vec!["system_id"]);
-    m.insert(CommandId::Outbind.as_u32(), vec!["system_id", "password"]);
+    m.insert(
+        CommandId::BindTransceiverResp.as_u32(),
+        vec![("system_id", None)],
+    );
+    m.insert(
+        CommandId::Outbind.as_u32(),
+        vec![("system_id", None), ("password", None)],
+    );
     m.insert(CommandId::Unbind.as_u32(), vec![]);
     m.insert(CommandId::UnbindResp.as_u32(), vec![]);
     m.insert(CommandId::EnquireLink.as_u32(), vec![]);
@@ -666,132 +687,150 @@ fn create_command_fields() -> HashMap<u32, Vec<&'static str>> {
     m.insert(
         CommandId::AlertNotification.as_u32(),
         vec![
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "esme_addr_ton",
-            "esme_addr_npi",
-            "esme_addr",
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", None),
+            ("esme_addr_ton", Some(Value::Number(0.into()))),
+            ("esme_addr_npi", Some(Value::Number(0.into()))),
+            ("esme_addr", None),
         ],
     );
     m.insert(CommandId::GenericNack.as_u32(), vec![]);
     m.insert(
         CommandId::SubmitSm.as_u32(),
         vec![
-            "service_type",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "dest_addr_ton",
-            "dest_addr_npi",
-            "destination_addr",
-            "esm_class",
-            "protocol_id",
-            "priority_flag",
-            "schedule_delivery_time",
-            "validity_period",
-            "registered_delivery",
-            "replace_if_present_flag",
-            "data_coding",
-            "sm_default_msg_id",
-            "short_message",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("dest_addr_ton", Some(Value::Number(0.into()))),
+            ("dest_addr_npi", Some(Value::Number(0.into()))),
+            ("destination_addr", None),
+            ("esm_class", Some(Value::Number(0.into()))),
+            ("protocol_id", Some(Value::Number(0.into()))),
+            ("priority_flag", Some(Value::Number(0.into()))),
+            (
+                "schedule_delivery_time",
+                Some(Value::String("".to_string())),
+            ),
+            ("validity_period", Some(Value::String("".to_string()))),
+            ("registered_delivery", Some(Value::Number(0.into()))),
+            ("replace_if_present_flag", Some(Value::Number(0.into()))),
+            ("data_coding", Some(Value::Number(0.into()))),
+            ("sm_default_msg_id", Some(Value::Number(0.into()))),
+            ("short_message", None),
         ],
     );
-    m.insert(CommandId::SubmitSmResp.as_u32(), vec!["message_id"]);
+    m.insert(CommandId::SubmitSmResp.as_u32(), vec![("message_id", None)]);
     m.insert(
         CommandId::DataSm.as_u32(),
         vec![
-            "service_type",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "dest_addr_ton",
-            "dest_addr_npi",
-            "destination_addr",
-            "esm_class",
-            "registered_delivery",
-            "data_coding",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("dest_addr_ton", Some(Value::Number(0.into()))),
+            ("dest_addr_npi", Some(Value::Number(0.into()))),
+            ("destination_addr", None),
+            ("esm_class", Some(Value::Number(0.into()))),
+            ("registered_delivery", Some(Value::Number(0.into()))),
+            ("data_coding", Some(Value::Number(0.into()))),
         ],
     );
-    m.insert(CommandId::DataSmResp.as_u32(), vec!["message_id"]);
+    m.insert(CommandId::DataSmResp.as_u32(), vec![("message_id", None)]);
     m.insert(
         CommandId::SubmitMulti.as_u32(),
         vec![
-            "service_type",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "dest_addresses",
-            "esm_class",
-            "protocol_id",
-            "priority_flag",
-            "schedule_delivery_time",
-            "validity_period",
-            "registered_delivery",
-            "replace_if_present_flag",
-            "data_coding",
-            "sm_default_msg_id",
-            "short_message",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("dest_addresses", None),
+            ("esm_class", Some(Value::Number(0.into()))),
+            ("protocol_id", Some(Value::Number(0.into()))),
+            ("priority_flag", Some(Value::Number(0.into()))),
+            (
+                "schedule_delivery_time",
+                Some(Value::String("".to_string())),
+            ),
+            ("validity_period", Some(Value::String("".to_string()))),
+            ("registered_delivery", Some(Value::Number(0.into()))),
+            ("replace_if_present_flag", Some(Value::Number(0.into()))),
+            ("data_coding", Some(Value::Number(0.into()))),
+            ("sm_default_msg_id", Some(Value::Number(0.into()))),
+            ("short_message", None),
         ],
     );
     m.insert(
         CommandId::SubmitMultiResp.as_u32(),
-        vec!["message_id", "unsuccess_smes"],
+        vec![("message_id", None), ("unsuccess_smes", None)],
     );
     m.insert(
         CommandId::DeliverSm.as_u32(),
         vec![
-            "service_type",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "dest_addr_ton",
-            "dest_addr_npi",
-            "destination_addr",
-            "esm_class",
-            "protocol_id",
-            "priority_flag",
-            "schedule_delivery_time",
-            "validity_period",
-            "registered_delivery",
-            "replace_if_present_flag",
-            "data_coding",
-            "sm_default_msg_id",
-            "short_message",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("dest_addr_ton", Some(Value::Number(0.into()))),
+            ("dest_addr_npi", Some(Value::Number(0.into()))),
+            ("destination_addr", None),
+            ("esm_class", Some(Value::Number(0.into()))),
+            ("protocol_id", Some(Value::Number(0.into()))),
+            ("priority_flag", Some(Value::Number(0.into()))),
+            (
+                "schedule_delivery_time",
+                Some(Value::String("".to_string())),
+            ),
+            ("validity_period", Some(Value::String("".to_string()))),
+            ("registered_delivery", Some(Value::Number(0.into()))),
+            ("replace_if_present_flag", Some(Value::Number(0.into()))),
+            ("data_coding", Some(Value::Number(0.into()))),
+            ("sm_default_msg_id", Some(Value::Number(0.into()))),
+            ("short_message", None),
         ],
     );
-    m.insert(CommandId::DeliverSmResp.as_u32(), vec!["message_id"]);
+    m.insert(
+        CommandId::DeliverSmResp.as_u32(),
+        vec![("message_id", None)],
+    );
 
     m.insert(
         CommandId::BroadcastSm.as_u32(),
         vec![
-            "service_type",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "message_id",
-            "priority_flag",
-            "schedule_delivery_time",
-            "validity_period",
-            "replace_if_present_flag",
-            "data_coding",
-            "sm_default_msg_id",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("message_id", Some(Value::String("".to_string()))),
+            ("priority_flag", Some(Value::Number(0.into()))),
+            (
+                "schedule_delivery_time",
+                Some(Value::String("".to_string())),
+            ),
+            ("validity_period", Some(Value::String("".to_string()))),
+            ("replace_if_present_flag", Some(Value::Number(0.into()))),
+            ("data_coding", Some(Value::Number(0.into()))),
+            ("sm_default_msg_id", Some(Value::Number(0.into()))),
         ],
     );
 
-    m.insert(CommandId::BroadcastSmResp.as_u32(), vec!["message_id"]);
+    m.insert(
+        CommandId::BroadcastSmResp.as_u32(),
+        vec![("message_id", None)],
+    );
 
     m.insert(
         CommandId::CancelSm.as_u32(),
         vec![
-            "service_type",
-            "message_id",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "dest_addr_ton",
-            "dest_addr_npi",
-            "destination_addr",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("message_id", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            ("dest_addr_ton", Some(Value::Number(0.into()))),
+            ("dest_addr_npi", Some(Value::Number(0.into()))),
+            ("destination_addr", Some(Value::String("".to_string()))),
         ],
     );
 
@@ -800,30 +839,38 @@ fn create_command_fields() -> HashMap<u32, Vec<&'static str>> {
     m.insert(
         CommandId::QuerySm.as_u32(),
         vec![
-            "message_id",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
+            ("message_id", None),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
         ],
     );
 
     m.insert(
         CommandId::QuerySmResp.as_u32(),
-        vec!["message_id", "final_date", "message_state", "error_code"],
+        vec![
+            ("message_id", None),
+            ("final_date", None),
+            ("message_state", None),
+            ("error_code", None),
+        ],
     );
 
     m.insert(
         CommandId::ReplaceSm.as_u32(),
         vec![
-            "message_id",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
-            "schedule_delivery_time",
-            "validity_period",
-            "registered_delivery",
-            "sm_default_msg_id",
-            "short_message",
+            ("message_id", None),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
+            (
+                "schedule_delivery_time",
+                Some(Value::String("".to_string())),
+            ),
+            ("validity_period", Some(Value::String("".to_string()))),
+            ("registered_delivery", Some(Value::Number(0.into()))),
+            ("sm_default_msg_id", Some(Value::Number(0.into()))),
+            ("short_message", None),
         ],
     );
 
@@ -832,26 +879,26 @@ fn create_command_fields() -> HashMap<u32, Vec<&'static str>> {
     m.insert(
         CommandId::QueryBroadcastSm.as_u32(),
         vec![
-            "message_id",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
+            ("message_id", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
         ],
     );
 
     m.insert(
         CommandId::QueryBroadcastSmResp.as_u32(),
-        vec!["message_id", "message_state"],
+        vec![("message_id", None), ("message_state", None)],
     );
 
     m.insert(
         CommandId::CancelBroadcastSm.as_u32(),
         vec![
-            "service_type",
-            "message_id",
-            "source_addr_ton",
-            "source_addr_npi",
-            "source_addr",
+            ("service_type", Some(Value::String("".to_string()))),
+            ("message_id", Some(Value::String("".to_string()))),
+            ("source_addr_ton", Some(Value::Number(0.into()))),
+            ("source_addr_npi", Some(Value::Number(0.into()))),
+            ("source_addr", Some(Value::String("".to_string()))),
         ],
     );
 

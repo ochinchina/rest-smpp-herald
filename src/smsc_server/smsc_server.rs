@@ -5,8 +5,8 @@ use crate::ip_whitelist::{IpWhitelist, create_ip_whitelist};
 use crate::message::{CommandId, DistrubutionList, SMPPMessage, SmppMessageBuffer};
 pub use crate::message_handler::{HttpMessageHandler, MessageHandler};
 use crate::message_storage::{
-    DeliveryMessageHandler, MessageStorage, create_message_storage, get_schedule_delivery_time,
-    get_validity_period,
+    MessageStorage, ScheduleDeliveryMessageHandler, create_message_storage,
+    get_schedule_delivery_time, get_validity_period,
 };
 use crate::sequence_number_allocator::SequenceNumberAllocator;
 pub use crate::user_authentication::{
@@ -45,8 +45,8 @@ pub struct SmscServer {
 }
 
 #[async_trait::async_trait]
-impl DeliveryMessageHandler for SmscServer {
-    async fn handle_delivery_message(&self, message: Value) -> std::io::Result<()> {
+impl ScheduleDeliveryMessageHandler for SmscServer {
+    async fn handle_schedule_delivery_message(&self, message: Value) -> std::io::Result<()> {
         let messages = match SMPPMessage::extract_command_id(&message) {
             Some(CommandId::SubmitSm) | Some(CommandId::DataSm) => {
                 info!("Handling SubmitSm message: {}", message);
@@ -109,11 +109,11 @@ impl SmscServer {
         let smsc_server_clone = smsc_server.clone();
         let smsc_server_handler = smsc_server.clone();
         let deliver_message_handler =
-            Box::new(smsc_server_handler) as Box<dyn DeliveryMessageHandler>;
+            Box::new(smsc_server_handler) as Box<dyn ScheduleDeliveryMessageHandler>;
 
         smsc_server_clone
             .pending_messages
-            .set_deliver_message_handler(deliver_message_handler)
+            .set_schedule_delivery_message_handler(deliver_message_handler)
             .await;
 
         smsc_server

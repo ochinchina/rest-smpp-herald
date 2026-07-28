@@ -25,11 +25,6 @@ impl TransactionResponseManager {
     pub async fn response_received(&self, sequence_number: u32, response: Value) {
         if let Some(sender) = self.transactions.lock().await.remove(&sequence_number) {
             let _ = sender.send(response);
-        } else {
-            warn!(
-                "No transaction found for sequence number {} to send response",
-                sequence_number
-            );
         }
     }
 
