@@ -2,6 +2,7 @@ use log::{debug, error, info, warn};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -9,8 +10,9 @@ use tokio::sync::Mutex;
  * Manages connected clients and their associated address ranges and message senders.
  */
 pub struct ClientManager {
-    // A thread-safe map of address ranges to their corresponding regex and message sender.
-    connections: Arc<Mutex<HashMap<String, (Regex, tokio::sync::mpsc::Sender<Vec<u8>>)>>>,
+    /// A thread-safe map of address ranges to their corresponding regex and message sender.
+    /// key is peer_address, value is a tuple of (range address regex, sender)
+    connections: Arc<Mutex<HashMap<String, (Regex, Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>)>>>,
 }
 
 impl ClientManager {
@@ -20,10 +22,16 @@ impl ClientManager {
         }
     }
 
+    /// Adds a new client to the manager with the specified peer address, address range, and message sender.
+    /// # Arguments
+    /// * `peer_address` - The address of the peer client.
+    /// * `address_range` - The address range associated with the client, which will be converted to a regex.
+    /// * `writer` - The message sender associated with the client.
     pub(crate) async fn add_client(
         &self,
+        peer_address: String,
         address_range: String,
-        sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+        writer: Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>,
     ) {
         if address_range.is_empty() {
             warn!("Attempted to add client with empty address range");
@@ -46,7 +54,8 @@ impl ClientManager {
                 self.connections
                     .lock()
                     .await
-                    .insert(address_range.clone(), (regex, sender));
+                    .entry(peer_address.clone())
+                    .or_insert((regex, writer));
                 info!("Added client for address range: {}", address_range);
             }
             Err(e) => {
@@ -58,49 +67,71 @@ impl ClientManager {
         }
     }
 
-    pub(crate) async fn remove_client(&self, address_range: &str) {
-        self.connections.lock().await.remove(address_range);
+    /// Removes a client from the manager based on the specified peer address.
+    /// # Arguments
+    /// * `peer_address` - The address of the peer client to be removed.
+    pub(crate) async fn remove_client(&self, peer_address: String) {
+        self.connections.lock().await.remove(&peer_address);
     }
 
+    /// Sends a message to the client associated with the specified address.
+    /// # Arguments
+    /// * `address` - The address of the client to which the message should be sent
+    /// * `message` - The message to be sent to the client.
+    /// # Returns
+    /// * `std::io::Result<()>` - Returns Ok(()) if the message was sent successfully, or an error if the client was not found or if there was an issue sending the message.
     pub(crate) async fn send_message(
         &self,
         address: &str,
         message: &Vec<u8>,
     ) -> std::io::Result<()> {
-        if let Some(sender) = self.get_writer(address).await {
-            if let Err(e) = sender.send(message.clone()).await {
-                error!("Failed to send message to client {}: {}", address, e);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Failed to send message",
-                ));
-            }
-            debug!(
-                "Succeed to send message to client {}: {}",
-                address,
-                hex::encode(&message)
-            );
-            Ok(())
-        } else {
-            error!("Client {} not found", address);
-            Err(std::io::Error::new(
+        let writers = self.get_writer(address).await;
+        if writers.is_empty() {
+            return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Client not found",
-            ))
+            ));
         }
+
+        for writer in writers {
+            let mut writer = writer.lock().await;
+            if let Ok(_) = writer.write_all(message).await {
+                if let Ok(_) = writer.flush().await {
+                    debug!(
+                        "Succeed to send message to client {}: {}",
+                        address,
+                        hex::encode(&message)
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        error!(
+            "Failed to send message to client {}: {}",
+            address,
+            hex::encode(&message)
+        );
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to send message to client",
+        ));
     }
 
     pub(crate) async fn get_writer(
         &self,
         address: &str,
-    ) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
+    ) -> Vec<Arc<Mutex<tokio::net::tcp::OwnedWriteHalf>>> {
         let guard = self.connections.lock().await;
-        guard.iter().find_map(|(_, (regex, sender))| {
-            if regex.is_match(address) {
-                Some(sender.clone())
-            } else {
-                None
-            }
-        })
+        guard
+            .iter()
+            .filter_map(|(_, (regex, writer))| {
+                if regex.is_match(address) {
+                    Some(writer.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }

@@ -209,7 +209,7 @@ impl SmscConnection {
                 }
 
                 _ = inactive_timer.tick() => {
-                    info!("Checking for no message timeout");
+                    debug!("Checking for no message timeout");
                     if messages_received.load(std::sync::atomic::Ordering::Relaxed) == 0 {
                         error!("No message received from SMSC for {:?}, disconnecting...", inactive_timer_timeout);
                         break;
