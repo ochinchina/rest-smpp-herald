@@ -1082,6 +1082,7 @@ impl MessageStorage for SqlMessageStorage {
         deliver_message_handler: Box<dyn ScheduleDeliveryMessageHandler>,
     ) {
         let self_clone = self.clone();
+	let _anchor = self.pool.acquire().await; // Keep the pool alive for the lifetime of the task
         tokio::spawn(async move {
             let mut t1 = interval(TokioDuration::from_secs(60));
             let mut t2 = interval(TokioDuration::from_secs(2));
