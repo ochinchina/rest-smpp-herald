@@ -160,7 +160,7 @@ After Base64 encoding, the previous **submit_sm** JSON example becomes:
   "short_message": "dGhpcyBpcyBhIHRlc3QgbWVzc2FnZQo="
 }
 ```
-In the **submit_multi** message, the field **number_of_dests** and **dest_address** are combined into **dest_addresses" field, it looks like:
+In the **submit_multi** message, the field **number_of_dests** and **dest_address** are combined into **dest_addresses** field, it looks like:
 
 ```json
 {
